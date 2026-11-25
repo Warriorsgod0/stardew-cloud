@@ -29,6 +29,10 @@ async function cloudLogin() {
 
   const result = await response.json();
 
+  if (!result.token || !result.expiresIn) {
+    throw new Error("Cloud login returned an invalid session.");
+  }
+
   cloudToken = result.token;
   cloudTokenExpiresAt = Date.now() + result.expiresIn * 1000;
 
@@ -42,7 +46,7 @@ async function ensureCloudLogin() {
   }
 }
 
-// Download the cloud save.
+// Download the cloud save from R2.
 async function downloadCloudSave() {
   await ensureCloudLogin();
 
@@ -59,6 +63,7 @@ async function downloadCloudSave() {
 
   cloudSaveETag = response.headers.get("ETag");
 
+  // Return the complete TAR archive as binary data.
   return await response.arrayBuffer();
 }
 
@@ -69,6 +74,7 @@ async function uploadCloudSave(saveData) {
   // Get the current cloud version if we don't have one.
   if (cloudSaveETag === null) {
     const check = await fetch(`${CLOUD_API}/save`, {
+      method: "GET",
       headers: {
         "Authorization": `Bearer ${cloudToken}`
       }
@@ -79,7 +85,7 @@ async function uploadCloudSave(saveData) {
     } else if (check.ok) {
       cloudSaveETag = check.headers.get("ETag");
     } else {
-      throw new Error("Could not check cloud save");
+      throw new Error("Could not check cloud save: " + check.status);
     }
   }
 
@@ -109,7 +115,12 @@ async function uploadCloudSave(saveData) {
   }
 
   const result = await response.json();
-  cloudSaveETag = result.etag;
+  cloudSaveETag = result.etag || response.headers.get("ETag");
 
   console.log("Stardew save uploaded!");
 }
+
+// Make functions available to game.js.
+window.cloudLogin = cloudLogin;
+window.downloadCloudSave = downloadCloudSave;
+window.uploadCloudSave = uploadCloudSave;
